@@ -32,12 +32,16 @@ import tempfile
 import uuid
 import socket
 import json
+import pandas as pd
 
 # Archivo para persistir avatares personalizados
 CUSTOM_AVATARS_FILE = 'custom_avatars.json'
 
 
-# ======== Parche SSL Global ========
+# ======== Rutas de Carpetas ========
+MODELS_DIR = 'avatares'
+TTS_DIR = os.path.join('static', 'tts')
+INVENTARIO_DIR = 'Inventario'
 # Deshabilitar verificación SSL para redes con proxy/certificados auto-firmados.
 # Afecta a aiohttp (usado por edge-tts) y a requests (descarga de avatares).
 # Autor: Ing. Walter Rodríguez - 2026-02-18
@@ -81,6 +85,62 @@ def add_no_cache_headers(response):
 @app.route('/')
 def home():
     return render_template('index.html')
+
+@app.route('/log', methods=['POST'])
+def remote_log():
+    data = request.get_json(silent=True) or {}
+    msg = data.get('message', '')
+    lvl = data.get('level', 'INFO').upper()
+    print(f"[FE-LOG] [{lvl}] {msg}")
+    return jsonify({"status": "ok"})
+
+# ======== Sistema de Inventario Excel ========
+# Autor: Ing. Walter Rodríguez - 2026-02-20
+
+@app.route('/inventario/data', methods=['GET'])
+def get_inventario_data():
+    """Lee el archivo Inventario/Inventario.xlsx y devuelve las filas.
+    Columnas esperadas: ID, Nombre, Descripción.
+    """
+    excel_path = os.path.join(INVENTARIO_DIR, 'Inventario.xlsx')
+    if not os.path.exists(excel_path):
+        return jsonify({"status": "error", "message": "No se encontró Inventario/Inventario.xlsx"}), 404
+    
+    try:
+        df = pd.read_excel(excel_path)
+        # Limpiar NaN para evitar errores en JSON
+        df = df.fillna('')
+        data = df.to_dict(orient='records')
+        return jsonify({"status": "ok", "items": data})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/inventario/files/<item_id>', methods=['GET'])
+def get_inventario_files(item_id):
+    """Lista imágenes y videos dentro de la carpeta Inventario/{item_id}/.
+    """
+    folder_path = os.path.join(INVENTARIO_DIR, str(item_id))
+    if not os.path.exists(folder_path):
+        return jsonify({"status": "ok", "files": []}) # Carpeta vacía o no existe
+    
+    valid_exts = ('.jpg', '.jpeg', '.png', '.gif', '.mp4', '.webm', '.mov')
+    try:
+        files = []
+        for f in sorted(os.listdir(folder_path)):
+            if f.lower().endswith(valid_exts):
+                type = 'video' if f.lower().endswith(('.mp4', '.webm', '.mov')) else 'image'
+                # URL para acceder al archivo via Flask static route
+                url = f"/inventario-media/{item_id}/{f}"
+                files.append({"name": f, "url": url, "type": type})
+        return jsonify({"status": "ok", "files": files})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/inventario-media/<path:filename>')
+def serve_inventario_media(filename):
+    """Sirve archivos multimedia desde la carpeta Inventario/.
+    """
+    return send_file(os.path.join(INVENTARIO_DIR, filename))
 
 @app.route('/adaptar', methods=['POST'])
 def adaptar_texto():

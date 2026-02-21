@@ -447,6 +447,95 @@ Descripción: Interfaz Premium de Avatar 3D con Lip-Sync local. Modelos GLB serv
                 height: 50%;
             }
         }
+
+        /* Sistema de Inventario Premium - Autor: Ing. Walter Rodríguez - 2026-02-20 */
+        #inventory-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 300px;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            display: none;
+            flex-direction: column;
+            gap: 12px;
+            z-index: 100;
+            animation: slideInRight 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(50px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .media-container {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .media-container img,
+        .media-container video {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .item-info {
+            text-align: center;
+        }
+
+        .item-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 4px;
+        }
+
+        .item-desc {
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.4;
+        }
+
+        .inventory-ctrl-group {
+            background: rgba(168, 85, 247, 0.05);
+            border: 1px dashed rgba(168, 85, 247, 0.3);
+            border-radius: 12px;
+            padding: 12px;
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .counter-badge {
+            background: var(--primary);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            font-weight: 700;
+        }
     </style>
     </style>
 </head>
@@ -468,6 +557,17 @@ Descripción: Interfaz Premium de Avatar 3D con Lip-Sync local. Modelos GLB serv
     <div id="app-container">
         <div id="avatar-view">
             <div id="canvas-wrapper"></div>
+
+            <!-- Visor de Inventario -->
+            <div id="inventory-overlay">
+                <div class="media-container" id="media-view">
+                    <!-- Dinámico -->
+                </div>
+                <div class="item-info">
+                    <div class="item-name" id="display-name">-</div>
+                    <div class="item-desc" id="display-desc">-</div>
+                </div>
+            </div>
 
             <div style="position:absolute; bottom:30px; left:30px; display:flex; flex-direction:column; gap:5px;">
                 <span class="badge badge-premium">REALISMO ARKIT ACTIVO (52 BLENDSHAPES)</span>
@@ -496,6 +596,20 @@ Descripción: Interfaz Premium de Avatar 3D con Lip-Sync local. Modelos GLB serv
                         title="IA analiza el texto y agrega expresiones faciales automáticamente">
                         ✨ ADAPTAR
                     </button>
+                </div>
+
+                <!-- Sección de Inventario - Autor: Ing. Walter Rodríguez - 2026-02-20 -->
+                <div class="inventory-ctrl-group">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                        <span style="font-size:11px; font-weight:600; color:#a855f7;">INVENTARIO LIVE</span>
+                        <span id="inventory-counter" class="counter-badge">0/0</span>
+                    </div>
+                    <button class="btn btn-primary" id="next-item-btn" disabled
+                        style="padding: 12px; background: linear-gradient(135deg, #a855f7, #7c3aed);">
+                        📦 ARTÍCULO SIGUIENTE
+                    </button>
+                    <p style="font-size:9px; color:#64748b; text-align:center;">Haga clic para presentar el siguiente
+                        producto</p>
                 </div>
                 <!-- Botón Test API -->
                 <button id="test-api-btn" style="width:100%; margin-top:6px; padding:6px 0; font-size:10px; letter-spacing:1px;
@@ -1083,6 +1197,107 @@ Descripción: Interfaz Premium de Avatar 3D con Lip-Sync local. Modelos GLB serv
                 updateCamera();
             }
         }
+
+        // ======== Lógica de Inventario Live - Autor: Ing. Walter Rodríguez - 2026-02-20 ========
+        let inventoryItems = [];
+        let currentItemIdx = -1;
+        let mediaCarouselInterval = null;
+        let currentMediaFiles = [];
+        let currentMediaIdx = 0;
+
+        async function initInventory() {
+            try {
+                const resp = await fetch('/inventario/data');
+                const data = await resp.json();
+                if (data.status === 'ok' && data.items && data.items.length > 0) {
+                    inventoryItems = data.items;
+                    document.getElementById('inventory-counter').innerText = `0/${inventoryItems.length}`;
+                    document.getElementById('next-item-btn').disabled = false;
+                    log(`Inventario cargado: ${inventoryItems.length} artículos.`);
+                } else {
+                    log(`Inventario vacío o error: ${data.message || 'Sin items'}`, 'warn');
+                    console.log('Datos recibidos inventario:', data);
+                }
+            } catch (e) {
+                log('Error cargando inventario: ' + e.message, 'warn');
+            }
+        }
+
+        async function nextInventoryItem() {
+            if (currentItemIdx >= inventoryItems.length - 1) return;
+
+            currentItemIdx++;
+            const item = inventoryItems[currentItemIdx];
+            const btn = document.getElementById('next-item-btn');
+            const counter = document.getElementById('inventory-counter');
+            const overlay = document.getElementById('inventory-overlay');
+
+            // Actualizar UI
+            counter.innerText = `${currentItemIdx + 1}/${inventoryItems.length}`;
+            overlay.style.display = 'flex';
+            document.getElementById('display-name').innerText = item.Nombre || 'Sin nombre';
+            document.getElementById('display-desc').innerText = item.Descripción || '';
+
+            if (currentItemIdx === inventoryItems.length - 1) {
+                btn.disabled = true;
+                btn.innerText = '✅ FIN DE INVENTARIO';
+            }
+
+            // 1. Que el avatar lo diga
+            // Autor: Ing. Walter Rodríguez - 2026-02-20
+            const q = item.Cantidad || 0;
+            const script = `${item.Nombre}. Vamos a vender ${q} unidades. ${item.Descripción}`;
+            document.getElementById('text-input').value = script;
+            hablarTexto();
+
+            // 2. Cargar y mostrar multimedia
+            try {
+                const fResp = await fetch(`/inventario/files/${item.ID}`);
+                const fData = await fResp.json();
+                if (fData.status === 'ok' && fData.files.length > 0) {
+                    currentMediaFiles = fData.files;
+                    currentMediaIdx = 0;
+                    showMedia(currentMediaFiles[0]);
+                } else {
+                    document.getElementById('media-view').innerHTML = '<div style="color:#475569; font-size:10px;">Sin multimedia</div>';
+                }
+            } catch (e) {
+                log('Error cargando media: ' + e.message, 'warn');
+            }
+        }
+
+        function showMedia(file) {
+            const container = document.getElementById('media-view');
+            container.innerHTML = '';
+            clearTimeout(mediaCarouselInterval);
+
+            if (file.type === 'image') {
+                const img = document.createElement('img');
+                img.src = file.url;
+                img.style.animation = 'fadeIn 0.5s ease';
+                container.appendChild(img);
+                mediaCarouselInterval = setTimeout(nextMedia, 4000);
+            } else if (file.type === 'video') {
+                const vid = document.createElement('video');
+                vid.src = file.url;
+                vid.autoplay = true;
+                vid.muted = false;
+                vid.style.width = '100%';
+                vid.style.height = '100%';
+                container.appendChild(vid);
+                vid.onended = nextMedia;
+                vid.onerror = nextMedia;
+            }
+        }
+
+        function nextMedia() {
+            if (currentMediaFiles.length <= 1) return;
+            currentMediaIdx = (currentMediaIdx + 1) % currentMediaFiles.length;
+            showMedia(currentMediaFiles[currentMediaIdx]);
+        }
+
+        document.getElementById('next-item-btn').onclick = nextInventoryItem;
+        initInventory();
 
         // --- EVENTOS de cámara ---
         // Escuchar cambios en todos los sliders - Autor: Ing. Walter Rodríguez - 2026-02-20
